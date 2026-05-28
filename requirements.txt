@@ -1,0 +1,14 @@
+# --- Tabular XGBoost Predictor Dependencies ---
+xgboost>=2.0.0
+optuna>=3.5.0
+shap>=0.44.0
+joblib>=1.3.0
+matplotlib>=3.7.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# --- Deep Learning / Visual Classifier Dependencies ---
+torch>=2.0.0
+torchvision>=0.15.0
+pillow>=9.5.0
