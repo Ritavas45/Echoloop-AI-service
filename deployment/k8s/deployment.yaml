@@ -1,0 +1,128 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echoloop-api
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: echoloop-api
+  template:
+    metadata:
+      labels:
+        app: echoloop-api
+    spec:
+      containers:
+      - name: api
+        image: echoloop:latest
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: models
+          mountPath: /app/models
+        - name: config
+          mountPath: /app/config
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: echoloop-data-pvc
+      - name: models
+        persistentVolumeClaim:
+          claimName: echoloop-models-pvc
+      - name: config
+        configMap:
+          name: echoloop-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echoloop-api-service
+  namespace: default
+spec:
+  selector:
+    app: echoloop-api
+  type: LoadBalancer
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: echoloop-retrain
+  namespace: default
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: retrain
+            image: echoloop:latest
+            command: ["python", "orchestrator.py", "retrain"]
+            volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: models
+              mountPath: /app/models
+          volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: echoloop-data-pvc
+          - name: models
+            persistentVolumeClaim:
+              claimName: echoloop-models-pvc
+          restartPolicy: OnFailure
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: echoloop-data-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: echoloop-models-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi

@@ -42,7 +42,8 @@ device = torch.device(
 
 CLASSES = ['Reuse', 'Refurbish', 'Repair', 'Recycle']
 RETRAINING_THRESHOLD = 50  # Retrain after 50 new labels
-CURRENT_MODEL_VERSION = "v1_base"
+CURRENT_MODEL_VERSION = "v2_archive_train_epoch1"
+
 
 # Global models and data store
 image_model = None

@@ -1,0 +1,44 @@
+
+version: '3.8'
+
+services:
+  echoloop-api:
+    build: .
+    container_name: echoloop-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./checkpoints:/app/checkpoints
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./config:/app/config
+    environment:
+      - TORCH_HOME=/app/models
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  orchestrator:
+    build: .
+    container_name: echoloop-orchestrator
+    volumes:
+      - ./data:/app/data
+      - ./checkpoints:/app/checkpoints
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./config:/app/config
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    command: python orchestrator.py scheduler
+
+volumes:
+  data:
+  models:
+  checkpoints:

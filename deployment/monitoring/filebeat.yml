@@ -1,0 +1,13 @@
+
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /app/logs/*.log
+
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+
+processors:
+  - add_kubernetes_metadata: ~
+  - add_docker_metadata: ~
