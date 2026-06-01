@@ -34,9 +34,53 @@ mock_data/
 *.pth
 *.pkl
 checkpoints/
+models/
+*.json
+
+# --- Data Files (Large & Generated) ---
+archive/
+archive-2/
+data/
+*.csv
+*.h5
+*.npy
+*.npz
+
+# --- Database Files ---
+*.db
+*.sqlite
+*.sqlite3
+
+# --- Logs & Temporary Files ---
+logs/
+*.log
+*.tmp
+
+# --- Configuration with Secrets ---
+.env
+.env.local
+config/pipeline_config.json
 
 # --- Analysis & Visual Export Outputs ---
 shap_importance.png
 
 # --- Jupyter Notebooks ---
 .ipynb_checkpoints/
+
+# --- Generated Documentation ---
+docs/
+*.md.bak
+
+# --- Temporary Build Files ---
+build/
+dist/
+*.egg-info/
+
+# --- Cache Files ---
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# --- Docker & K8s Generated Files ---
+deployment/docker/Dockerfile.bak
+deployment/k8s/*.bak

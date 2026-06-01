@@ -42,7 +42,10 @@ class PhoneConditionDataset(Dataset):
         
     def _find_samples(self):
         """
-        Scans root_dir and compiles list of all phone folders and their associated images.
+        Scans root_dir and compiles list of all phone samples.
+        Supports either:
+          - class folders that contain subfolders for each phone sample
+          - class folders that contain individual images directly
         """
         if not os.path.isdir(self.root_dir):
             print(f"Warning: Root directory {self.root_dir} does not exist.")
@@ -52,32 +55,41 @@ class PhoneConditionDataset(Dataset):
             class_dir = os.path.join(self.root_dir, class_name)
             if not os.path.isdir(class_dir):
                 continue
-                
-            # Scan directory for folders (each represents a single phone sample)
+
+            # If there are images directly inside the class folder, treat each image as its own sample.
+            direct_image_paths = []
+            for ext in ('*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG'):
+                direct_image_paths.extend(glob.glob(os.path.join(class_dir, ext)))
+            direct_image_paths = sorted(direct_image_paths)
+
+            for image_path in direct_image_paths:
+                self.samples.append({
+                    'folder_path': class_dir,
+                    'image_paths': [image_path],
+                    'label': self.class_to_idx[class_name]
+                })
+
+            # Scan directory for subfolders (each represents a single phone sample)
             phone_folders = sorted(os.listdir(class_dir))
             for folder in phone_folders:
                 folder_path = os.path.join(class_dir, folder)
                 if not os.path.isdir(folder_path):
                     continue
-                
-                # Search for typical image files
+
                 image_paths = []
                 for ext in ('*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG'):
                     image_paths.extend(glob.glob(os.path.join(folder_path, ext)))
-                
-                # Ensure deterministic order of views
+
                 image_paths = sorted(image_paths)
-                
-                # We only count this folder if it contains at least one image
                 if len(image_paths) == 0:
                     continue
-                    
+
                 self.samples.append({
                     'folder_path': folder_path,
                     'image_paths': image_paths,
                     'label': self.class_to_idx[class_name]
                 })
-                
+
         print(f"Loaded {len(self.samples)} phone samples from {self.root_dir}.")
 
     def __len__(self):

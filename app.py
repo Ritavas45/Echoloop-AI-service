@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import xgboost as xgb
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from typing import List, Annotated
 from pydantic import BaseModel
 
 from dataset import get_transforms
@@ -92,12 +93,12 @@ def startup_event():
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(
-    images: List[UploadFile] = File(...),
+    images: List[UploadFile] = File(default=..., description="Upload 4 or 5 phone images"),
     model_age_months: int = Form(...),
     battery_health_pct: float = Form(...),
     screen_cracked: bool = Form(...),
     functional_issues: bool = Form(...),
-    cosmetic_scratches: int = Form(...) # 0=none, 1=minor, 2=major
+    cosmetic_scratches: int = Form(...)
 ):
     # 1. Validate image count
     n_images = len(images)
