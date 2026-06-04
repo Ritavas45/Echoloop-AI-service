@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
-COPY requirements.txt .
+COPY requirements_updated.txt ./requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
@@ -21,12 +21,15 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p ./checkpoints ./models ./logs ./data ./config
 
+# Set up entrypoint script
+RUN cp deployment/docker/entrypoint.sh ./entrypoint.sh && chmod +x ./entrypoint.sh
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # Expose port
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "-m", "uvicorn", "app_updated:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]

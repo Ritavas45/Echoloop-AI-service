@@ -3,6 +3,7 @@ Updated FastAPI application with continuous learning integration.
 Includes data collection, feedback endpoints, and model versioning.
 """
 
+import xgboost as xgb
 import os
 import io
 from typing import List, Optional
@@ -11,7 +12,6 @@ from PIL import Image
 import numpy as np
 import pandas as pd
 import torch
-import xgboost as xgb
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 import json
@@ -25,10 +25,21 @@ from continuous_training import ContinuousTrainer, check_and_retrain_if_needed
 # Initialize FastAPI App
 # ============================================================================
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="Echoloop AI - Multi-Modal Phone Condition Classifier with Continuous Learning",
     description="FastAPI endpoint with Late Fusion EfficientNet-B3 + XGBoost + Continuous Training Pipeline",
     version="2.0"
+)
+
+# Enable CORS for frontend integration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ============================================================================
@@ -124,6 +135,20 @@ def startup_event():
     print("[Echoloop] Loading image transforms...")
     _, val_transform = get_transforms(300)
     
+    # Load tabular model (XGBoost) first to avoid library/OpenMP conflict segfaults on macOS
+    print("[Echoloop] Loading XGBoost tabular classifier...")
+    xgb_path = "./xgboost_model.json"
+    if os.path.exists(xgb_path):
+        try:
+            tabular_model = xgb.XGBClassifier()
+            tabular_model.load_model(xgb_path)
+            print("[Echoloop] ✓ XGBoost model loaded successfully")
+        except Exception as e:
+            print(f"[Echoloop] Error: Could not load XGBoost model: {e}")
+            raise RuntimeError(f"Could not load tabular model: {e}")
+    else:
+        raise FileNotFoundError(f"Missing XGBoost model at {xgb_path}")
+
     # Load image model (EfficientNet)
     print("[Echoloop] Loading Late Fusion EfficientNet-B3...")
     image_model = LateFusionEfficientNet(num_classes=len(CLASSES), pretrained=False)
@@ -146,20 +171,22 @@ def startup_event():
     image_model.to(device)
     image_model.eval()
     
-    # Load tabular model (XGBoost)
-    print("[Echoloop] Loading XGBoost tabular classifier...")
-    xgb_path = "./xgboost_model.json"
-    if os.path.exists(xgb_path):
-        try:
-            tabular_model = xgb.XGBClassifier()
-            tabular_model.load_model(xgb_path)
-            print("[Echoloop] ✓ XGBoost model loaded successfully")
-        except Exception as e:
-            print(f"[Echoloop] Error: Could not load XGBoost model: {e}")
-            raise RuntimeError(f"Could not load tabular model: {e}")
-    else:
-        raise FileNotFoundError(f"Missing XGBoost model at {xgb_path}")
-    
+    # Start the orchestrator scheduler in a background thread
+    try:
+        from orchestrator import PipelineOrchestrator
+        import threading
+        
+        def run_scheduler():
+            print("[Echoloop] Starting background orchestrator scheduler thread...")
+            orchestrator = PipelineOrchestrator()
+            orchestrator.start_scheduler()
+            
+        scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+        scheduler_thread.start()
+        print("[Echoloop] ✓ Orchestrator scheduler thread started successfully")
+    except Exception as e:
+        print(f"[Echoloop] ⚠️ Failed to start orchestrator scheduler thread: {e}")
+        
     print(f"\n{'='*60}")
     print(f"[Echoloop] All models loaded and ready!")
     print(f"{'='*60}\n")
@@ -453,4 +480,6 @@ async def get_model_versions():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

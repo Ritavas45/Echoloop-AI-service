@@ -4,6 +4,7 @@ Handles automated model retraining with new user feedback data.
 Implements active learning and data collection strategies.
 """
 
+import xgboost as xgb
 import os
 import json
 import torch
@@ -12,7 +13,6 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Tuple, Optional
-import xgboost as xgb
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import uuid

@@ -310,18 +310,88 @@ python orchestrator.py report
 
 ## Phase 6: Production Deployment (Optional)
 
-### Step 6.1: Docker Deployment
-```bash
-# Build Docker image
-docker build -t echoloop:latest -f deployment/docker/Dockerfile .
+We unified the FastAPI server and the orchestrator scheduler into a single process. Therefore, you only need to run a single container instance in production, simplifying deployment and avoiding shared volume conflicts. Below are the recommended deployment paths:
 
-# Run with Docker Compose
-docker-compose -f deployment/docker/docker-compose.yml up
+### Path A: Render Deployment (Fastest & Easiest)
 
-# Access: http://localhost:8000
-```
+Render provides an easy, Blueprint-based setup using [render.yaml](file:///Users/ritavas/Desktop/Frontend/Echoloop-AI-service/render.yaml).
 
-### Step 6.2: Kubernetes Deployment
+1. **Push Code to Git**: Commit and push the project files to a private or public GitHub/GitLab repository.
+2. **Connect to Render**:
+   - Log in to [render.com](https://render.com).
+   - Go to **Blueprints** -> **New Blueprint Instance**.
+   - Connect your repository. Render will read the [render.yaml](file:///Users/ritavas/Desktop/Frontend/Echoloop-AI-service/render.yaml) file.
+3. **Automatic Provisioning**:
+   - Render will create a Web Service called `echoloop-ai-service`.
+   - It will attach a 10GB persistent disk at `/app/persistent` (which our [entrypoint.sh](file:///Users/ritavas/Desktop/Frontend/Echoloop-AI-service/deployment/docker/entrypoint.sh) script automatically links to persist the SQLite database, model checkpoints, and logs).
+   - Render will build the container using [Dockerfile](file:///Users/ritavas/Desktop/Frontend/Echoloop-AI-service/deployment/docker/Dockerfile) and deploy it.
+4. **Access Endpoint**: Your service will be online at `https://echoloop-ai-service.onrender.com/health`.
+
+---
+
+### Path B: AWS EC2 or Lightsail Deployment (Recommended for AWS with SQLite)
+
+Deploying on a virtual machine is the most cost-effective way to host stateful containerized ML applications on AWS since it uses a persistent local EBS SSD.
+
+1. **Launch Instance**:
+   - Create a `t3.medium` (4GB RAM) EC2 or Lightsail instance running **Ubuntu 22.04 LTS**.
+   - Configure the **Security Group** to allow inbound TCP traffic on port `8000` (API) and port `22` (SSH).
+2. **Install Docker & Docker Compose**:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y docker.io docker-compose
+   sudo systemctl start docker
+   sudo systemctl enable docker
+   sudo usermod -aG docker $USER  # Log out and log back in for changes to take effect
+   ```
+3. **Deploy the Code**:
+   - Clone the repository onto the instance.
+   - Run the service containerized in the background:
+     ```bash
+     docker-compose -f deployment/docker/docker-compose.yml up --build -d
+     ```
+4. **Verify**:
+   - Check container logs: `docker logs -f echoloop-api`
+   - Test health check: `curl http://<INSTANCE_PUBLIC_IP>:8000/health`
+
+---
+
+### Path C: AWS ECS (Elastic Container Service) on Fargate (Enterprise Scale)
+
+For a serverless container setup on AWS, we use ECS Fargate with AWS EFS (Elastic File System) to persist our SQLite database.
+
+1. **Create EFS Volume**:
+   - In AWS Console, go to **EFS** -> **Create File System**.
+   - Note the File System ID (e.g., `fs-12345678`).
+   - Configure EFS Mount Targets in your VPC subnets and allow inbound NFS traffic (port 2049) from your ECS security group.
+2. **Push Image to AWS ECR**:
+   - Create a repository in **ECR** (Elastic Container Registry) called `echoloop`.
+   - Build, tag, and push the image:
+     ```bash
+     aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+     docker build -t echoloop:latest -f deployment/docker/Dockerfile .
+     docker tag echoloop:latest <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/echoloop:latest
+     docker push <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/echoloop:latest
+     ```
+3. **Register ECS Task Definition**:
+   Create a Task Definition in ECS with:
+   - **Launch Type**: Fargate (1 vCPU, 4GB RAM)
+   - **Storage / Volume**: Add a volume named `echoloop-storage` with volume type `EFS` and specify your EFS File System ID.
+   - **Container Definition**:
+     - Image: `<AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/echoloop:latest`
+     - Port Mappings: Host `8000` -> Container `8000`
+     - Mount Points: Container path `/app/persistent` mapped to volume `echoloop-storage`
+     - Env variables: `PORT=8000`, `PYTHONUNBUFFERED=1`, `TORCH_HOME=/app/models`
+4. **Deploy Service**:
+   - Create an ECS Service using the Task Definition.
+   - Attach an **Application Load Balancer (ALB)** to route public HTTPS traffic to the ECS task on port `8000`.
+
+---
+
+### Path D: Kubernetes Deployment
+
+For Kubernetes deployments (using the manifests in [deployment/k8s/](file:///Users/ritavas/Desktop/Frontend/Echoloop-AI-service/deployment/k8s/)), ensure a PersistentVolumeClaim (PVC) is configured and mounted at `/app/persistent` to allow the SQLite database to survive pod restarts.
+
 ```bash
 # Apply Kubernetes manifests
 kubectl apply -f deployment/k8s/deployment.yaml
@@ -330,18 +400,6 @@ kubectl apply -f deployment/k8s/deployment.yaml
 kubectl get deployments
 kubectl get pods
 kubectl logs -f deployment/echoloop-api
-
-# Scale if needed
-kubectl scale deployment echoloop-api --replicas=5
-```
-
-### Step 6.3: Configure NGINX (for load balancing)
-```bash
-# Copy NGINX config
-cp deployment/docker/nginx.conf /etc/nginx/sites-available/echoloop
-
-# Reload NGINX
-sudo nginx -s reload
 ```
 
 ## Phase 7: Monitoring & Maintenance (Ongoing)

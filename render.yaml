@@ -1,0 +1,23 @@
+# ============================================================================
+# Render Infrastructure Blueprint for Echoloop AI Service
+# To deploy, connect your repository to Render: https://render.com
+# ============================================================================
+
+services:
+  - type: web
+    name: echoloop-ai-service
+    env: docker
+    dockerfilePath: deployment/docker/Dockerfile
+    dockerContext: .
+    plan: starter # Starter plan is required on Render to attach persistent volumes
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: TORCH_HOME
+        value: /app/models
+    disk:
+      name: echoloop-persistent-storage
+      mountPath: /app/persistent
+      sizeGB: 10
