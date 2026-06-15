@@ -32,10 +32,12 @@ mock_data/
 # --- Model Serialization & Saved Outputs ---
 *.joblib
 *.pth
+!checkpoints/best_model.pth
 *.pkl
-checkpoints/
+# checkpoints/
 models/
 *.json
+!xgboost_model.json
 
 # --- Data Files (Large & Generated) ---
 archive/
