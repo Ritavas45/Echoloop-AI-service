@@ -78,14 +78,14 @@ setup_python_env() {
     print_success "pip upgraded"
     
     # Install dependencies
-    pip install -r requirements_updated.txt
+    pip install -r requirements.txt
     print_success "Dependencies installed"
 }
 
 init_database() {
     print_section "Initializing database"
     
-    python3 << 'EOF'
+    PYTHONPATH=src python3 << 'EOF'
 from database import ECholooopDataStore
 try:
     store = ECholooopDataStore()
@@ -100,7 +100,7 @@ EOF
 setup_deployment_configs() {
     print_section "Generating deployment configurations"
     
-    python3 deployment_config.py
+    PYTHONPATH=src python3 scripts/deployment_config.py
     print_success "Deployment configurations generated"
 }
 
@@ -147,7 +147,7 @@ start_api() {
     echo "Press Ctrl+C to stop"
     echo ""
     
-    python3 -m uvicorn app_updated:app --host 0.0.0.0 --port 8000
+    python3 -m uvicorn app:app --host 0.0.0.0 --port 8000
 }
 
 start_orchestrator() {

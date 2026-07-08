@@ -43,4 +43,4 @@ fi
 
 # Start the application
 echo "[Entrypoint] Launching application..."
-exec python app_updated.py
+exec python app.py
