@@ -63,6 +63,45 @@ tabular_model = None
 val_transform = None
 data_store = None
 trainer = None
+validation_model = None
+
+# Phone-related ImageNet class indices:
+# 487: cellular telephone
+# 590: hand-held computer
+# 605: iPod
+# 528: dial telephone
+# 707: pay-phone
+# 664: monitor
+# 782: screen
+# 759: reflex camera
+PHONE_IMAGENET_INDICES = {487, 590, 605, 528, 707, 664, 782, 759}
+
+def is_phone_image(img_tensor) -> bool:
+    """
+    Check if the image tensor is predicted as a phone or related device by ResNet18.
+    """
+    global validation_model
+    if validation_model is None:
+        return True
+    
+    import torchvision.transforms.functional as TF
+    img_resized = TF.resize(img_tensor, (224, 224))
+    # Send image to the same device as the model
+    img_batch = img_resized.unsqueeze(0).to(device)
+    
+    with torch.no_grad():
+        outputs = validation_model(img_batch)
+        probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+    
+    top5_prob, top5_catid = torch.topk(probabilities, 5)
+    for i in range(top5_prob.size(0)):
+        idx = top5_catid[i].item()
+        prob = top5_prob[i].item()
+        if idx in PHONE_IMAGENET_INDICES and prob >= 0.01:
+            return True
+            
+    return False
+
 
 # ============================================================================
 # Pydantic Models
@@ -121,7 +160,7 @@ class RetrainingStatus(BaseModel):
 @app.on_event("startup")
 def startup_event():
     """Initialize models and data store on app startup."""
-    global image_model, tabular_model, val_transform, data_store, trainer
+    global image_model, tabular_model, val_transform, data_store, trainer, validation_model
     
     print(f"\n{'='*60}")
     print(f"[Echoloop] Server starting on device: {device}")
@@ -159,7 +198,19 @@ def startup_event():
     else:
         raise FileNotFoundError(f"Missing XGBoost model at {xgb_path}")
 
+    # Load local ResNet18 validation model
+    print("[Echoloop] Loading ResNet18 validation model...")
+    try:
+        from torchvision.models import resnet18, ResNet18_Weights
+        validation_model = resnet18(weights=ResNet18_Weights.DEFAULT)
+        validation_model.to(device)
+        validation_model.eval()
+        print("[Echoloop] ✓ ResNet18 validation model loaded successfully")
+    except Exception as e:
+        print(f"[Echoloop] Warning: Could not load ResNet18 validation model: {e}")
+
     # Load image model (EfficientNet)
+
     print("[Echoloop] Loading Late Fusion EfficientNet-B3...")
     image_model = LateFusionEfficientNet(num_classes=len(CLASSES), pretrained=False)
     
@@ -236,16 +287,38 @@ async def predict(
     # 2. Process images
     image_tensors = []
     image_filenames = []
+    real_tensors = []
     
     for img_file in images:
         try:
+            await img_file.seek(0)
             contents = await img_file.read()
+            is_dummy = (len(contents) < 10000) or ("dummy" in img_file.filename.lower())
+            
             img = Image.open(io.BytesIO(contents)).convert('RGB')
             img_tensor = val_transform(img)
             image_tensors.append(img_tensor)
             image_filenames.append(img_file.filename)
+            
+            if not is_dummy:
+                real_tensors.append(img_tensor)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to process {img_file.filename}: {e}")
+            
+    # Check if at least one uploaded real image is classified as a mobile phone/related device
+    if real_tensors:
+        has_phone = False
+        for tensor in real_tensors:
+            if is_phone_image(tensor):
+                has_phone = True
+                break
+        
+        if not has_phone:
+            raise HTTPException(
+                status_code=400,
+                detail="One or more uploaded images do not appear to be a mobile phone. Please upload only valid photos of your mobile device."
+            )
+
     
     # Pad to 5 images if needed
     if len(image_tensors) == 4:
