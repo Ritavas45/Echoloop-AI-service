@@ -312,25 +312,31 @@ async def predict(
             if is_phone_image(tensor):
                 has_phone = True
                 break
-        
         if not has_phone:
             raise HTTPException(
                 status_code=400,
-                detail="One or more uploaded images do not appear to be a mobile phone. Please upload only valid photos of your mobile device."
+                detail="None of the uploaded images appear to be a mobile phone. Please upload at least one valid photo of your mobile device (e.g. front screen or back panel)."
             )
 
-    
-    # Pad to 5 images if needed
-    if len(image_tensors) == 4:
-        image_tensors.append(image_tensors[-1])
-        image_filenames.append(f"{image_filenames[-1]}_padded")
-    
-    images_tensor = torch.stack(image_tensors, dim=0).unsqueeze(0).to(device)
+
+
     
     # 3. Image Model Inference
-    with torch.no_grad():
-        img_probs_tensor = image_model(images_tensor)
-        img_probs = img_probs_tensor[0].cpu().numpy()
+    all_dummy = len(real_tensors) == 0
+    if all_dummy:
+        img_probs = np.zeros(len(CLASSES))
+    else:
+        # Replicate or truncate real_tensors to at least 4 images
+        real_image_tensors = list(real_tensors)
+        while len(real_image_tensors) < 4:
+            real_image_tensors.append(real_image_tensors[-1])
+        if len(real_image_tensors) == 4:
+            real_image_tensors.append(real_image_tensors[-1])
+            
+        real_images_tensor = torch.stack(real_image_tensors, dim=0).unsqueeze(0).to(device)
+        with torch.no_grad():
+            img_probs_tensor = image_model(real_images_tensor)
+            img_probs = img_probs_tensor[0].cpu().numpy()
     
     # 4. Tabular Model Inference
     input_df = pd.DataFrame([{
@@ -347,35 +353,44 @@ async def predict(
         raise HTTPException(status_code=500, detail=f"Tabular inference failed: {e}")
     
     # 5. Multi-Modal Decision Fusion (Confidence-Gated Voting)
-    img_pred_idx = int(np.argmax(img_probs))
     tab_pred_idx = int(np.argmax(tab_probs))
-    
-    img_max_conf = float(img_probs[img_pred_idx])
     tab_max_conf = float(tab_probs[tab_pred_idx])
     
-    decision_path = "weighted_soft_voting"
-    fused_probs = None
-    
-    if img_max_conf >= 0.90 and tab_max_conf < 0.90:
-        fused_probs = img_probs
-        decision_path = "image_model_override_90%"
-    elif tab_max_conf >= 0.90 and img_max_conf < 0.90:
+    if all_dummy:
         fused_probs = tab_probs
-        decision_path = "tabular_model_override_90%"
-    elif img_max_conf >= 0.90 and tab_max_conf >= 0.90:
-        if img_max_conf >= tab_max_conf:
+        decision_path = "tabular_only_due_to_no_real_images"
+        img_pred_idx = tab_pred_idx
+        img_max_conf = 0.0
+        fused_pred_idx = tab_pred_idx
+        fused_conf = tab_max_conf
+    else:
+        img_pred_idx = int(np.argmax(img_probs))
+        img_max_conf = float(img_probs[img_pred_idx])
+        
+        decision_path = "weighted_soft_voting"
+        fused_probs = None
+        
+        if img_max_conf >= 0.90 and tab_max_conf < 0.90:
             fused_probs = img_probs
             decision_path = "image_model_override_90%"
-        else:
+        elif tab_max_conf >= 0.90 and img_max_conf < 0.90:
             fused_probs = tab_probs
             decision_path = "tabular_model_override_90%"
-    else:
-        # Weighted soft voting: 60% image, 40% tabular
-        fused_probs = 0.6 * img_probs + 0.4 * tab_probs
-        decision_path = "weighted_soft_voting"
-    
-    fused_pred_idx = int(np.argmax(fused_probs))
-    fused_conf = float(fused_probs[fused_pred_idx])
+        elif img_max_conf >= 0.90 and tab_max_conf >= 0.90:
+            if img_max_conf >= tab_max_conf:
+                fused_probs = img_probs
+                decision_path = "image_model_override_90%"
+            else:
+                fused_probs = tab_probs
+                decision_path = "tabular_model_override_90%"
+        else:
+            # Weighted soft voting: 30% image, 70% tabular (tabular is more reliable for user details)
+            fused_probs = 0.3 * img_probs + 0.7 * tab_probs
+            decision_path = "weighted_soft_voting"
+        
+        fused_pred_idx = int(np.argmax(fused_probs))
+        fused_conf = float(fused_probs[fused_pred_idx])
+
     
     # 6. Log prediction to database
     prediction_id = data_store.log_prediction(
