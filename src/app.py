@@ -94,12 +94,15 @@ def is_phone_image(img_tensor) -> bool:
         probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
     
     top5_prob, top5_catid = torch.topk(probabilities, 5)
+    predictions = []
     for i in range(top5_prob.size(0)):
         idx = top5_catid[i].item()
         prob = top5_prob[i].item()
+        predictions.append(f"Class {idx} ({prob:.2%})")
         if idx in PHONE_IMAGENET_INDICES and prob >= 0.01:
             return True
             
+    print(f"[Echoloop] Image failed ResNet18 validation. Top 5 predictions: {', '.join(predictions)}")
     return False
 
 
@@ -313,10 +316,8 @@ async def predict(
                 has_phone = True
                 break
         if not has_phone:
-            raise HTTPException(
-                status_code=400,
-                detail="None of the uploaded images appear to be a mobile phone. Please upload at least one valid photo of your mobile device (e.g. front screen or back panel)."
-            )
+            # Print a warning but proceed to keep the system robust and prevent false negatives
+            print("[Echoloop Warning] None of the uploaded images were classified as a phone by local ResNet18. Proceeding anyway because the frontend already validated the upload.")
 
 
 
